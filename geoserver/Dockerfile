@@ -13,6 +13,7 @@ RUN  dpkg-divert --local --rename --add /sbin/initctl
 # ADD 71-apt-cacher-ng /etc/apt/apt.conf.d/71-apt-cacher-ng
 
 RUN apt-get -y update
+RUN apt-get -y install gnupg 
 
 #-------------Application Specific Stuff ----------------------------------------------------
 

@@ -1,156 +1,51 @@
-# docker-postgis
+# postgis/postgis
 
+[![Build Status](https://travis-ci.org/postgis/docker-postgis.svg)](https://travis-ci.org/postgis/docker-postgis) [![Join the chat at https://gitter.im/postgis/docker-postgis](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/postgis/docker-postgis?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
+The `postgis/postgis` image provides tags for running Postgres with [PostGIS](http://postgis.net/) extensions installed. This image is based on the official [`postgres`](https://registry.hub.docker.com/_/postgres/) image and provides debian and alpine variants for PostGIS both 2.5.x and 3.0.x for each supported version of Postgres (9.5, 9.6, 10, 11, and 12).  Additionally, an image version is provided which is built from the latest version of Postgres (12) with versions of PostGIS and its dependencies built from their respective master branches.
 
-A simple docker container that runs PostGIS
+This image ensures that the default database created by the parent `postgres` image will have the following extensions installed:
 
-Visit our page on the docker hub at: https://registry.hub.docker.com/u/kartoza/postgis/
+* `postgis`
+* `postgis_topology`
+* `fuzzystrmatch`
+* `postgis_tiger_geocoder`
 
-There are a number of other docker postgis containers out there. This one
-differentiates itself by:
+Unless `-e POSTGRES_DB` is passed to the container at startup time, this database will be named after the admin user (either `postgres` or the user specified with `-e POSTGRES_USER`). If you would prefer to use the older template database mechanism for enabling PostGIS, the image also provides a PostGIS-enabled template database called `template_postgis`.
 
-* provides ssl support out of the box
-* connections are restricted to the docker subnet
-* template_postgis database template is created for you
-* a database 'gis' is created for you so you can use this container 'out of the
-  box' when it runs with e.g. QGIS
+## Usage
 
-We will work to add more security features to this container in the future with 
-the aim of making a PostGIS image that is ready to be used in a production 
-environment (though probably not for heavy load databases).
+In order to run a basic container capable of serving a PostGIS-enabled database, start a container as follows:
 
-**Note:** We recommend using ``apt-cacher-ng`` to speed up package fetching -
-you should configure the host for it in the provided 71-apt-cacher-ng file.
+    docker run --name some-postgis -e POSTGRES_PASSWORD=mysecretpassword -d postgis/postgis
 
-## Tagged versions
+For more detailed instructions about how to start and control your Postgres container, see the documentation for the `postgres` image [here](https://registry.hub.docker.com/_/postgres/).
 
-The following convention is used for tagging the images we build:
+Once you have started a database container, you can then connect to the database as follows:
 
-kartoza/postgis:[postgres_version]-[postgis-version]
+    docker run -it --link some-postgis:postgres --rm postgres \
+        sh -c 'exec psql -h "$POSTGRES_PORT_5432_TCP_ADDR" -p "$POSTGRES_PORT_5432_TCP_PORT" -U postgres'
 
-So for example:
+See [the PostGIS documentation](http://postgis.net/docs/postgis_installation.html#create_new_db_extensions) for more details on your options for creating and using a spatially-enabled database.
 
-``kartoza/postgis:9.4-2.1`` Provides PostgreSQL 9.4, PostGIS 2.1
+## Known Issues / Errors
 
-**Note:** We highly recommend that you use tagged versions because
-successive minor versions of PostgreSQL write their database clusters
-into different database directories - which will cause your database
-to appear to be empty if you are using persistent volumes for your
-database storage.
+When You encouter errors due to PostGIS update `OperationalError: could not access file "$libdir/postgis-X.X`, run:
 
-## Getting the image
+`docker exec some-postgis update-postgis.sh`
 
-There are various ways to get the image onto your system:
-
-
-The preferred way (but using most bandwidth for the initial image) is to
-get our docker trusted build like this:
-
+It will update to Your newest PostGIS. Update is idempotent, so it won't hurt when You run it more than once, You will get notification like:
 
 ```
-docker pull kartoza/postgis
+Updating PostGIS extensions template_postgis to X.X.X
+NOTICE:  version "X.X.X" of extension "postgis" is already installed
+NOTICE:  version "X.X.X" of extension "postgis_topology" is already installed
+NOTICE:  version "X.X.X" of extension "postgis_tiger_geocoder" is already installed
+ALTER EXTENSION
+Updating PostGIS extensions docker to X.X.X
+NOTICE:  version "X.X.X" of extension "postgis" is already installed
+NOTICE:  version "X.X.X" of extension "postgis_topology" is already installed
+NOTICE:  version "X.X.X" of extension "postgis_tiger_geocoder" is already installed
+ALTER EXTENSION
 ```
 
-To build the image yourself without apt-cacher (also consumes more bandwidth
-since deb packages need to be refetched each time you build) do:
-
-```
-docker build -t kartoza/postgis git://github.com/kartoza/docker-postgis
-```
-
-To build with apt-cache (and minimised download requirements) do you need to
-clone this repo locally first and modify the contents of 71-apt-cacher-ng to
-match your cacher host. Then build using a local url instead of directly from
-github.
-
-```
-git clone git://github.com/kartoza/docker-postgis
-```
-
-Now edit ``71-apt-cacher-ng`` then do:
-
-```
-docker build -t kartoza/postgis .
-```
-
-## Run
-
-
-To create a running container do:
-
-```
-sudo docker run --name "postgis" -p 25432:5432 -d -t kartoza/postgis
-```
-
-You can also use the following environment variables to pass a 
-user name and password. 
-
-* -e POSTGRES_USER=<PGUSER> 
-* -e POSTGRES_PASS=<PGPASSWORD>
-
-These will be used to create a new superuser with
-your preferred credentials. If these are not specified then the postgresql 
-user is set to 'docker' with password 'docker'.
-
-## Convenience run script
-
-For convenience we have provided a bash script for running this container
-that lets you specify a volume mount point and a username / password 
-for the new instance superuser. It takes these options:
-
-```
-OPTIONS:
-   -h      Show this message
-   -n      Container name
-   -v      Volume to mount the Postgres cluster into
-   -u      Postgres user name (defaults to 'docker')
-   -p      Postgres password  (defaults to 'docker')
-```
-
-Example usage:
-
-```
-./run-postgis-docker.sh -v /tmp/foo/ -n postgis -u foo -p bar
-
-```
-
-## Connect via psql
-
-Connect with psql (make sure you first install postgresql client tools on your
-host / client):
-
-
-```
-psql -h localhost -U docker -p 25432 -l
-```
-
-**Note:** Default postgresql user is 'docker' with password 'docker'.
-
-You can then go on to use any normal postgresql commands against the container.
-
-Under ubuntu 14.04 the postgresql client can be installed like this:
-
-```
-sudo apt-get install postgresql-client-9.3
-```
-
-
-## Storing data on the host rather than the container.
-
-
-Docker volumes can be used to persist your data.
-
-```
-mkdir -p ~/postgres_data
-docker run -d -v $HOME/postgres_data:/var/lib/postgresql kartoza/postgis`
-```
-
-You need to ensure the ``postgres_data`` directory has sufficient permissions
-for the docker process to read / write it.
-
-
-
-## Credits
-
-Tim Sutton (tim@kartoza.com)
-May 2014

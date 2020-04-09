@@ -1,50 +1,176 @@
-#--------- Generic stuff all our Dockerfiles should start with so we get caching ------------
-FROM debian:stable
-MAINTAINER Tim Sutton<tim@kartoza.com>
+FROM postgres:12
 
-RUN  export DEBIAN_FRONTEND=noninteractive
-ENV  DEBIAN_FRONTEND noninteractive
-RUN  dpkg-divert --local --rename --add /sbin/initctl
-#RUN  ln -s /bin/true /sbin/initctl
+LABEL maintainer="PostGIS Project - https://postgis.net"
 
-# Use local cached debs from host (saves your bandwidth!)
-# Change ip below to that of your apt-cacher-ng host
-# Or comment this line out if you do not with to use caching
-ADD 71-apt-cacher-ng /etc/apt/apt.conf.d/71-apt-cacher-ng
+ENV SFCGAL_VERSION master
+ENV SFCGAL_GIT_HASH 787e2b7eedd69d3d806432e986ac0ee51125570a
+ENV PROJ_VERSION master
+ENV PROJ_GIT_HASH b84c9d0cb61f3bd561da6092e15e294ae7e410e0
+ENV GDAL_VERSION master
+ENV GDAL_GIT_HASH 6c491dfffa97270d922783d69a1124dcd9be3b47
+ENV GEOS_VERSION master
+ENV GEOS_GIT_HASH 4e9a2550a346d2052c5018909dc77eed30117772
+ENV POSTGIS_VERSION master
+ENV POSTGIS_GIT_HASH 93bb425c61fbfcef9d830a10b61aa74305114efc
 
-#RUN echo "deb http://archive.ubuntu.com/ubuntu trusty main universe" > /etc/apt/sources.list
-# Add the PostgreSQL PGP key to verify their Debian packages.
-# It should be the same key as https://www.postgresql.org/media/keys/ACCC4CF8.asc
-RUN apt-key adv --keyserver hkp://p80.pool.sks-keyservers.net:80 --recv-keys B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8
-# Add PostgreSQL's repository. It contains the most recent stable release
-#     of PostgreSQL, ``9.5``.
-RUN echo "deb http://apt.postgresql.org/pub/repos/apt/ jessie-pgdg main" > /etc/apt/sources.list.d/pgdg.list
-RUN apt-get -y update
-RUN apt-get -y install ca-certificates rpl pwgen
-RUN apt-get -y install bash
+RUN set -ex \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+      curl \
+      libboost-atomic1.67.0 \
+      libboost-chrono1.67.0 \
+      libboost-date-time1.67.0 \
+      libboost-filesystem1.67.0 \
+      libboost-program-options1.67.0 \
+      libboost-serialization1.67.0 \
+      libboost-system1.67.0 \
+      libboost-test1.67.0 \
+      libboost-thread1.67.0 \
+      libboost-timer1.67.0 \
+      libcgal13 \
+      libcurl3-gnutls \
+      libexpat1 \
+      libgmp10 \
+      libgmpxx4ldbl \
+      libjson-c3 \
+      libmpfr6 \
+      libprotobuf-c1 \
+      libtiff5 \
+      libxml2 \
+      sqlite3 \
+    && apt-get install -y --no-install-recommends \
+      autoconf \
+      automake \
+      autotools-dev \
+      bison \
+      build-essential \
+      ca-certificates \
+      cmake \
+      git \
+      g++ \
+      libboost-all-dev \
+      libcgal-dev \
+      libcurl4-gnutls-dev \
+      libgmp-dev \
+      libjson-c-dev \
+      libmpfr-dev \
+      libprotobuf-c-dev \
+      libsqlite3-dev \
+      libtiff-dev \
+      libtool \
+      libxml2-dev \
+      make \
+      pkg-config \
+      postgresql-server-dev-$PG_MAJOR \
+      protobuf-c-compiler \
+      xsltproc \
+    # sfcgal
+    && mkdir -p /usr/src/sfcgal \
+    && cd /usr/src/sfcgal \
+    && git init \
+    && git remote add origin https://github.com/Oslandia/SFCGAL.git \
+    && git fetch --depth 1 origin :${SFCGAL_GIT_HASH} \
+    && git reset --hard FETCH_HEAD \
+    && mkdir cmake-build \
+    && cd cmake-build \
+    && cmake .. \
+    && make -j$(nproc) \
+    && make install \
+    && rm /usr/local/lib/libSFCGAL.la \
+    && cd / \
+    && rm -fr /usr/src/sfcgal \
+    # proj4
+    && mkdir -p /usr/src/proj \
+    && cd /usr/src/proj \
+    && git init \
+    && git remote add origin https://github.com/OSGeo/PROJ.git \
+    && git fetch --depth 1 origin :${PROJ_GIT_HASH} \
+    && git reset --hard FETCH_HEAD \
+    && ./autogen.sh \
+    && ./configure --disable-static \
+    && make -j$(nproc) \
+    && make install \
+    && cd / \
+    && rm -fr /usr/src/proj \
+    # geos
+    && mkdir -p /usr/src/geos \
+    && cd /usr/src/geos \
+    && git init \
+    && git remote add origin https://github.com/libgeos/geos.git \
+    && git fetch --depth 1 origin :${GEOS_GIT_HASH} \
+    && git reset --hard FETCH_HEAD \
+    && ./autogen.sh \
+    && ./configure --disable-static \
+    && make -j$(nproc) \
+    && make install \
+    && cd / \
+    && rm -fr /usr/src/geos \
+    # gdal
+    && mkdir -p /usr/src/gdal \
+    && cd /usr/src/gdal \
+    && git init \
+    && git remote add origin https://github.com/OSGeo/gdal.git \
+    && git fetch --depth 1 origin :${GDAL_GIT_HASH} \
+    && git reset --hard FETCH_HEAD \
+    && cd gdal \
+    && ./autogen.sh \
+    && ./configure --disable-static \
+    && make -j$(nproc) \
+    && make install \
+    && cd / \
+    && rm -fr /usr/src/gdal \
+    # postgis
+    && mkdir -p /usr/src/postgis \
+    && cd /usr/src/postgis \
+    && git init \
+    && git remote add origin https://git.osgeo.org/gitea/postgis/postgis.git \
+    && git fetch --depth 1 origin :${POSTGIS_GIT_HASH} \
+    && git reset --hard FETCH_HEAD \
+    && ./autogen.sh \
+# configure options taken from:
+# https://anonscm.debian.org/cgit/pkg-grass/postgis.git/tree/debian/rules?h=jessie
+    && ./configure \
+#       --with-gui \
+    && make -j$(nproc) \
+    && make install \
+    && cd / \
+    && rm -rf /usr/src/postgis \
+    && apt-get purge -y --autoremove \
+      autoconf \
+      automake \
+      autotools-dev \
+      bison \
+      build-essential \
+      ca-certificates \
+      cmake \
+      git \
+      g++ \
+      libboost-all-dev \
+      libcgal-dev \
+      libcurl4-gnutls-dev \
+      libgmp-dev \
+      libjson-c-dev \
+      libmpfr-dev \
+      libprotobuf-c-dev \
+      libsqlite3-dev \
+      libtiff-dev \
+      libtool \
+      libxml2-dev \
+      make \
+      pkg-config \
+      postgresql-server-dev-$PG_MAJOR \
+      protobuf-c-compiler \
+      xsltproc \
+    && rm -rf /var/lib/apt/lists/* \
+    # Minimal command line test.
+    && cs2cs \
+    && gdalinfo --version \
+    && geos-config --version \
+    && ogr2ogr --version \
+    && proj \
+    && sfcgal-config --version
 
+RUN mkdir -p /docker-entrypoint-initdb.d
+COPY ./initdb-postgis.sh /docker-entrypoint-initdb.d/10_postgis.sh
+COPY ./update-postgis.sh /usr/local/bin
 
-#-------------Application Specific Stuff ----------------------------------------------------
-
-# We add postgis as well to prevent build errors (that we dont see on local builds)
-# on docker hub e.g.
-# The following packages have unmet dependencies:
-# postgresql-9.3-postgis-2.1 : Depends: libgdal1h (>= 1.9.0) but it is not going to be installed
-#                              Recommends: postgis but it is not going to be installed
-RUN apt-get install -y postgresql-9.5-postgis-2.2 netcat
-ADD postgres.conf /etc/supervisor/conf.d/postgres.conf
-
-# Open port 5432 so linked containers can see them
-EXPOSE 5432
-
-# Run any additional tasks here that are too tedious to put in
-# this dockerfile directly.
-ADD setup.sh /setup.sh
-RUN chmod 0755 /setup.sh
-RUN /setup.sh
-
-# We will run any commands in this when the container starts
-ADD start-postgis.sh /start-postgis.sh
-RUN chmod 0755 /start-postgis.sh
-
-CMD /start-postgis.sh
