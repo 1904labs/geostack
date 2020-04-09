@@ -1,7 +1,7 @@
 version: '2'
 services:
   geoserver:
-    build: ../../containers/apps/geoserver
+    build: ./geoserver
     depends_on: 
       - postgis
     image: geoserver:1.0
@@ -13,9 +13,9 @@ services:
     links:
       - postgis:pg
     volumes: 
-      - ~/data/geoserver/db:/opt/geoserver/data_dir
+      - ./data/geoserver/db:/opt/geoserver/data_dir
   postgis:
-    build: ../../containers/data/postgis-geoserver
+    build: ./postgis-geoserver
     image: postgis:1.0
     container_name: 1904-postgis 
     ports: 
@@ -23,5 +23,5 @@ services:
     expose:
       - "5432"
     volumes: 
-      - ~/data/pg/data:/var/lib/postgresql/9.5/main 
+      - ./data/pg/data:/var/lib/postgresql/9.5/main 
 
