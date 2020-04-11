@@ -1,119 +1,124 @@
 #--------- Generic stuff all our Dockerfiles should start with so we get caching ------------
-FROM tomcat:8.0
-MAINTAINER Tim Sutton<tim@linfiniti.com>
+ARG IMAGE_VERSION=9-jre11-slim
 
-RUN  export DEBIAN_FRONTEND=noninteractive
-ENV  DEBIAN_FRONTEND noninteractive
-RUN  dpkg-divert --local --rename --add /sbin/initctl
-#RUN  ln -s /bin/true /sbin/initctl
 
-# Use local cached debs from host (saves your bandwidth!)
-# Change ip below to that of your apt-cacher-ng host
-# Or comment this line out if you do not with to use caching
-# ADD 71-apt-cacher-ng /etc/apt/apt.conf.d/71-apt-cacher-ng
+FROM tomcat:$IMAGE_VERSION
 
-RUN apt-get -y update
-RUN apt-get -y install gnupg 
+LABEL maintainer="Tim Sutton<tim@linfiniti.com>"
 
-#-------------Application Specific Stuff ----------------------------------------------------
 
-ENV GS_VERSION 2.9.0 
-ENV GEOSERVER_DATA_DIR /opt/geoserver/data_dir
+ARG GS_VERSION=2.16.2
 
-RUN mkdir -p $GEOSERVER_DATA_DIR
 
-# Unset Java related ENVs since they may change with Oracle JDK
-ENV JAVA_VERSION=
-ENV JAVA_DEBIAN_VERSION=
+## Would you like to keep default Tomcat webapps
+ARG TOMCAT_EXTRAS=true
 
-# Set JAVA_HOME to /usr/lib/jvm/default-java and link it to OpenJDK installation
-# RUN ln -s /usr/lib/jvm/java-7-openjdk-amd64 /usr/lib/jvm/default-java
-ENV JAVA_HOME /usr/lib/jvm/default-java
+ARG WAR_URL=http://downloads.sourceforge.net/project/geoserver/GeoServer/${GS_VERSION}/geoserver-${GS_VERSION}-war.zip
+ARG STABLE_PLUGIN_URL=https://liquidtelecom.dl.sourceforge.net/project/geoserver/GeoServer/${GS_VERSION}/extensions
+
+#Install extra fonts to use with sld font markers
+RUN apt-get -y update; apt-get install -y fonts-cantarell lmodern ttf-aenigma ttf-georgewilliams ttf-bitstream-vera \
+    ttf-sjfonts tv-fonts build-essential libapr1-dev libssl-dev  gdal-bin libgdal-java wget zip curl xsltproc certbot \
+    certbot
+
+RUN set -e \
+    export DEBIAN_FRONTEND=noninteractive \
+    dpkg-divert --local --rename --add /sbin/initctl \
+    # Set JAVA_HOME to /usr/lib/jvm/default-java and link it to OpenJDK installation
+    && ln -s /usr/lib/jvm/java-11-openjdk-amd64 /usr/lib/jvm/default-java \
+    && (echo "Yes, do as I say!" | apt-get remove --force-yes login) \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV \
+    JAVA_HOME=/usr/lib/jvm/default-java \
+    STABLE_EXTENSIONS='' \
+    COMMUNITY_EXTENSIONS='' \
+    DEBIAN_FRONTEND=noninteractive \
+    GEOSERVER_DATA_DIR=/opt/geoserver/data_dir \
+    GDAL_DATA=/usr/local/gdal_data \
+    LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/usr/local/apr/lib:/opt/libjpeg-turbo/lib64:/usr/lib:/usr/lib/x86_64-linux-gnu" \
+    FOOTPRINTS_DATA_DIR=/opt/footprints_dir \
+    GEOWEBCACHE_CACHE_DIR=/opt/geoserver/data_dir/gwc \
+    ENABLE_JSONP=true \
+    MAX_FILTER_RULES=20 \
+    OPTIMIZE_LINE_WIDTH=false \
+    SSL=false \
+    HTTP_PORT=8080 \
+    HTTP_PROXY_NAME= \
+    HTTP_PROXY_PORT= \
+    HTTP_REDIRECT_PORT= \
+    HTTP_CONNECTION_TIMEOUT=20000 \
+    HTTPS_PORT=8443 \
+    HTTPS_MAX_THREADS=150 \
+    HTTPS_CLIENT_AUTH= \
+    HTTPS_PROXY_NAME= \
+    HTTPS_PROXY_PORT= \
+    JKS_FILE=letsencrypt.jks \
+    JKS_KEY_PASSWORD='geoserver' \
+    KEY_ALIAS=letsencrypt \
+    JKS_STORE_PASSWORD='geoserver' \
+    P12_FILE=letsencrypt.p12 \
+    PKCS12_PASSWORD='geoserver' \
+    LETSENCRYPT_CERT_DIR=/etc/letsencrypt \
+    RANDFILE=${LETSENCRYPT_CERT_DIR}/.rnd \
+    GEOSERVER_CSRF_DISABLED=true \
+    FONTS_DIR=/opt/fonts
+
+
+
+WORKDIR /scripts
+
+
+RUN mkdir -p  ${GEOSERVER_DATA_DIR} ${LETSENCRYPT_CERT_DIR} ${FOOTPRINTS_DATA_DIR} ${FONTS_DIR}
+
 
 ADD resources /tmp/resources
+ADD build_data/stable_plugins.txt /plugins/stable_plugins.txt
+ADD build_data/community_plugins.txt /community_plugins/community_plugins.txt
+ADD build_data/log4j.properties  ${CATALINA_HOME}/log4j.properties
+ADD build_data/web.xml ${CATALINA_HOME}/conf/web.xml
+ADD scripts /scripts
+ADD build_data/letsencrypt-tomcat.xsl ${CATALINA_HOME}/conf/letsencrypt-tomcat.xsl
+RUN chmod +x /scripts/*.sh
 
-# If a matching Oracle JDK tar.gz exists in /tmp/resources, move it to /var/cache/oracle-jdk7-installer
-# where oracle-java7-installer will detect it
-RUN if ls /tmp/resources/*jdk-*-linux-x64.tar.gz > /dev/null 2>&1; then \
-      mkdir /var/cache/oracle-jdk8-installer && \
-      mv /tmp/resources/*jdk-*-linux-x64.tar.gz /var/cache/oracle-jdk8-installer/; \
-    fi;
 
-# Install Oracle JDK (and uninstall OpenJDK JRE) if the build-arg ORACLE_JDK = true or an Oracle tar.gz
-# was found in /tmp/resources
-ARG ORACLE_JDK=true
-RUN if ls /var/cache/oracle-jdk8-installer/*jdk-*-linux-x64.tar.gz > /dev/null 2>&1 || [ "$ORACLE_JDK" = true ]; then \
-       apt-get autoremove --purge -y openjdk-7-jre-headless && \
-       echo oracle-java8-installer shared/accepted-oracle-license-v1-1 select true \
-         | debconf-set-selections && \
-       echo "deb http://ppa.launchpad.net/webupd8team/java/ubuntu precise main" \
-         > /etc/apt/sources.list.d/webupd8team-java.list && \
-       apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys EEA14886 && \
-       apt-get update && \
-       apt-get install -y oracle-java8-installer oracle-java8-set-default && \
-       ln -s --force /usr/lib/jvm/java-8-oracle /usr/lib/jvm/default-java && \
-       rm -rf /var/lib/apt/lists/* && \
-       rm -rf /var/cache/oracle-jdk8-installer; \
-       if [ -f /tmp/resources/jce_policy.zip ]; then \
-         unzip -j /tmp/resources/jce_policy.zip -d /tmp/jce_policy && \
-         mv /tmp/jce_policy/*.jar $JAVA_HOME/jre/lib/security/; \
-       fi; \
-    fi;
+RUN /scripts/setup.sh \
+    && apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-#Add JAI and ImageIO for great speedy speed.
-WORKDIR /tmp
-RUN wget http://download.java.net/media/jai/builds/release/1_1_3/jai-1_1_3-lib-linux-amd64.tar.gz && \
-    wget http://download.java.net/media/jai-imageio/builds/release/1.1/jai_imageio-1_1-lib-linux-amd64.tar.gz && \
-    gunzip -c jai-1_1_3-lib-linux-amd64.tar.gz | tar xf - && \
-    gunzip -c jai_imageio-1_1-lib-linux-amd64.tar.gz | tar xf - && \
-    mv /tmp/jai-1_1_3/lib/*.jar $JAVA_HOME/jre/lib/ext/ && \
-    mv /tmp/jai-1_1_3/lib/*.so $JAVA_HOME/jre/lib/amd64/ && \
-    mv /tmp/jai_imageio-1_1/lib/*.jar $JAVA_HOME/jre/lib/ext/ && \
-    mv /tmp/jai_imageio-1_1/lib/*.so $JAVA_HOME/jre/lib/amd64/ && \
-    rm /tmp/jai-1_1_3-lib-linux-amd64.tar.gz && \
-    rm -r /tmp/jai-1_1_3 && \
-    rm /tmp/jai_imageio-1_1-lib-linux-amd64.tar.gz && \
-    rm -r /tmp/jai_imageio-1_1
-WORKDIR $CATALINA_HOME
 
-# A little logic that will fetch the geoserver war zip file if it
-# is not available locally in the resources dir
-RUN if [ ! -f /tmp/resources/geoserver.zip ]; then \
-    wget -c http://sourceforge.net/projects/geoserver/files/GeoServer/${GS_VERSION}/geoserver-${GS_VERSION}-war.zip \
-      -O /tmp/resources/geoserver.zip; \
-    fi; \
-    unzip /tmp/resources/geoserver.zip -d /tmp/geoserver \
-    && unzip /tmp/geoserver/geoserver.war -d $CATALINA_HOME/webapps/geoserver \
-    && rm -rf $CATALINA_HOME/webapps/geoserver/data \
-    && rm -rf /tmp/geoserver
+ENV \
+    ## Initial Memory that Java can allocate
+    INITIAL_MEMORY="2G" \
+    ## Maximum Memory that Java can allocate
+    MAXIMUM_MEMORY="4G" \
+    XFRAME_OPTIONS="true" \
+    REQUEST_TIMEOUT=60 \
+    PARARELL_REQUEST=100 \
+    GETMAP=10 \
+    REQUEST_EXCEL=4 \
+    SINGLE_USER=6 \
+    GWC_REQUEST=16 \
+    WPS_REQUEST=1000/d;30s \
+    S3_SERVER_URL='' \
+    S3_USERNAME='' \
+    S3_PASSWORD='' \
+    SAMPLE_DATA='FALSE'\
+    GEOSERVER_FILEBROWSER_HIDEFS=false
 
-COPY ./resources/gt-mongodb-14-SNAPSHOT.jar $CATALINA_HOME/webapps/geoserver/WEB-INF/lib
-COPY ./resources/mongo-java-driver-2.11.3.jar $CATALINA_HOME/webapps/geoserver/WEB-INF/lib
 
-# Install any plugin zip files in resources/plugins
-RUN if ls /tmp/resources/plugins/*.zip > /dev/null 2>&1; then \
-      for p in /tmp/resources/plugins/*.zip; do \
-        unzip $p -d /tmp/gs_plugin \
-        && mv /tmp/gs_plugin/*.jar $CATALINA_HOME/webapps/geoserver/WEB-INF/lib/ \
-        && rm -rf /tmp/gs_plugin; \
-      done; \
-    fi
 
-# Overlay files and directories in resources/overlays if they exist
-RUN rm /tmp/resources/overlays/README.txt && \
-    if ls /tmp/resources/overlays/* > /dev/null 2>&1; then \
-      cp -rf /tmp/resources/overlays/* /; \
-    fi;
 
-# Optionally remove Tomcat manager, docs, and examples
-ARG TOMCAT_EXTRAS=true
-RUN if [ "$TOMCAT_EXTRAS" = false ]; then \
-    rm -rf $CATALINA_HOME/webapps/ROOT && \
-    rm -rf $CATALINA_HOME/webapps/docs && \
-    rm -rf $CATALINA_HOME/webapps/examples && \
-    rm -rf $CATALINA_HOME/webapps/host-manager && \
-    rm -rf $CATALINA_HOME/webapps/manager; \
-  fi;
+EXPOSE  $HTTPS_PORT
 
-# Delete resources after installation
-RUN rm -rf /tmp/resources
+RUN groupadd -r geoserverusers -g 10001 && \
+    useradd -M -u 10000 -g geoserverusers geoserveruser
+RUN chown -R geoserveruser:geoserverusers /usr/local/tomcat ${FOOTPRINTS_DATA_DIR}  \
+ ${GEOSERVER_DATA_DIR} /scripts ${LETSENCRYPT_CERT_DIR} ${FONTS_DIR} /tmp/
+
+RUN chmod o+rw ${LETSENCRYPT_CERT_DIR}
+
+USER geoserveruser
+WORKDIR ${CATALINA_HOME}
+
+CMD ["/bin/sh", "/scripts/entrypoint.sh"]
