@@ -8,3 +8,5 @@ resources/overlays/*
 .idea
 btsync-media.env 
 btsync-db.env 
+.env
+data/*

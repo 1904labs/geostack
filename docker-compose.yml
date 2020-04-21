@@ -18,10 +18,11 @@ services:
     build: ./postgis-geoserver
     image: postgis:1.0
     container_name: 1904-postgis 
+    environment: 
+      - POSTGRES_PASSWORD="${DB_PASSWORD}"
     ports: 
       - "5432:5432"
     expose:
       - "5432"
     volumes: 
       - ./data/pg/data:/var/lib/postgresql/9.5/main 
-
